@@ -22,7 +22,7 @@ type TSPacket struct {
 	AdaptionLength   uint8
 	Discontinuity    bool
 	RandomAccess     bool
-	ParseTsPacket    uint64
+	PCR              uint64
 	HasPCR           bool
 
 	// --- Payload ---
@@ -61,7 +61,38 @@ func ParseTsPacket(data []byte) (*TSPacket, error) {
 		pkt.AdaptionLength = afLen
 
 		if afLen > 0 {
+			flags := data[5]
+			// 5번째 바이트의 플래그들
+			pkt.Discontinuity = (flags & 0x80) != 0 // D7 : Discontinuity indicator
+			pkt.RandomAccess = (flags & 0x40) != 0  // D6: Random Access indicator
 
+			pcrFlag := (flags & 0x10) != 0 // D4: PCR flag
+
+			// PCR 파싱 (총 6바이트: Base 33bit + Reserved 6bit + Ext 9bit)
+			if pcrFlag && afLen >= 7 {
+				// PCR Base (33 bits) 추출 로직
+				// data[6] ~ data[11] 사용
+				var pcrBase uint64
+				pcrBase = (uint64(data[6]) << 25) |
+					(uint64(data[7]) << 17) |
+					(uint64(data[8]) << 9) |
+					(uint64(data[8]) << 1) |
+					(uint64(data[10]) >> 7)
+
+				// PCR Extension은 보통 계산에서 제외하거나 별도로 둠 (여기선 Base만)
+				pkt.PCR = pcrBase
+				pkt.HasPCR = true
+			}
 		}
+		// Adaption Field 길이만큼 오프셋 이동 (+1은 길이 필드 자체 크기)
+		payloadOffset += int(afLen) + 1
 	}
+
+	// --- 3. Payload Extraction ---
+	// AFC가 1(01) 또는 3(11) 이어야 페이로드가 있음
+	if (pkt.AFC == 1 || pkt.AFC == 3) && payloadOffset < 188 {
+		pkt.Payload = data[payloadOffset:]
+	}
+
+	return pkt, nil
 }
