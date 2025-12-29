@@ -76,7 +76,7 @@ func ParseTsPacket(data []byte) (*TSPacket, error) {
 				pcrBase = (uint64(data[6]) << 25) |
 					(uint64(data[7]) << 17) |
 					(uint64(data[8]) << 9) |
-					(uint64(data[8]) << 1) |
+					(uint64(data[9]) << 1) |
 					(uint64(data[10]) >> 7)
 
 				// PCR Extension은 보통 계산에서 제외하거나 별도로 둠 (여기선 Base만)
