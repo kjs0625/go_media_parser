@@ -5,7 +5,6 @@ import (
 	"io"
 	"os"
 
-	"go_media_parser/pkg/hexview"
 	"go_media_parser/pkg/mpegts"
 )
 
@@ -43,17 +42,18 @@ func main() {
 
 		packetCount++
 
-		hexview.Print(buffer)
-		if packetCount >= MAX_PACKETS {
-			fmt.Println("...(생략)...")
-			break
-		}
-
 		tsPacket, err := mpegts.ParseTsPacket(buffer)
 		if err != nil {
 			fmt.Println("failed to parse ts packet")
 		} else {
-			fmt.Printf("%+v\n", tsPacket)
+			mpegts.Print(tsPacket)
+		}
+
+		//hexview.Print(buffer)
+
+		if packetCount >= MAX_PACKETS {
+			fmt.Println("...(생략)...")
+			break
 		}
 	}
 

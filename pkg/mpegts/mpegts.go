@@ -18,12 +18,12 @@ type TSPacket struct {
 	CC       uint8  // Continuity Counter
 
 	// --- Adaption Field (Optional) ---
-	HasAdaptionField bool
-	AdaptionLength   uint8
-	Discontinuity    bool
-	RandomAccess     bool
-	PCR              uint64
-	HasPCR           bool
+	HasAdaptationField bool
+	AdaptationLength   uint8
+	Discontinuity      bool
+	RandomAccess       bool
+	PCR                uint64
+	HasPCR             bool
 
 	// --- Payload ---
 	Payload []byte
@@ -56,9 +56,9 @@ func ParseTsPacket(data []byte) (*TSPacket, error) {
 	// --- 2. Adaption Field Parsing ---
 	payloadOffset := 4
 	if pkt.AFC == 2 || pkt.AFC == 3 {
-		pkt.HasAdaptionField = true
+		pkt.HasAdaptationField = true
 		afLen := data[4] // Adaption Filed Length
-		pkt.AdaptionLength = afLen
+		pkt.AdaptationLength = afLen
 
 		if afLen > 0 {
 			flags := data[5]
@@ -95,4 +95,33 @@ func ParseTsPacket(data []byte) (*TSPacket, error) {
 	}
 
 	return pkt, nil
+}
+
+func Print(p *TSPacket) {
+	fmt.Printf("[TS] PID: %4d | PUSI: %-5v | CC: %2d | AFC: %d ", p.PID, p.PUSI, p.CC, p.AFC)
+
+	afcDesc := ""
+	switch p.AFC {
+	case 2:
+		afcDesc = "(Adpat)"
+	case 3:
+		afcDesc = "(Mix)"
+	}
+	fmt.Printf("%s\n", afcDesc)
+
+	if p.HasAdaptationField {
+		fmt.Printf("    └─ Adaptation: Len=%d, RAI=%v", p.AdaptationLength, p.RandomAccess)
+		if p.HasPCR {
+			fmt.Printf(", PCR=%d", p.PCR)
+		}
+		fmt.Println()
+	}
+
+	if len(p.Payload) > 0 {
+		previewLen := 8
+		if len(p.Payload) < previewLen {
+			previewLen = len(p.Payload)
+		}
+		fmt.Printf("    └─ Payload: %3d bytes [% X ...]\n", len(p.Payload), p.Payload[:previewLen])
+	}
 }
