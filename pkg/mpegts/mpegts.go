@@ -2,6 +2,8 @@ package mpegts
 
 import (
 	"fmt"
+	"os"
+	"path/filepath"
 )
 
 const TS_PACKET_SIZE = 188
@@ -27,6 +29,119 @@ type TSPacket struct {
 
 	// --- Payload ---
 	Payload []byte
+}
+
+type Assembler struct {
+	// PID별로 조립 중인 임시 버퍼
+	buffers map[uint16][]byte
+
+	// PID별로 열려 있는 파일 핸들 (계속 열고 닫으면 느리니까)
+	files map[uint16]*os.File
+
+	// 파일 저장할 폴더 경로
+	outputDir string
+}
+
+// NewAssembler: 생성자
+func NewAssembler(outputDir string) *Assembler {
+	// 폴더가 없으면 생성
+	if _, err := os.Stat(outputDir); os.IsNotExist(err) {
+		os.Mkdir(outputDir, 0755)
+	}
+
+	return &Assembler{
+		buffers:   make(map[uint16][]byte),
+		files:     make(map[uint16]*os.File),
+		outputDir: outputDir,
+	}
+}
+
+// AddPacket: 패킷을 받아서 조립 로직 수행
+func (a *Assembler) AddPacket(pkt *TSPacket) {
+	// Payload가 없거나, 이상한 패킷은 무시
+	if len(pkt.Payload) == 0 {
+		return
+	}
+
+	// PID가 0(PAT), 17(SDT) 등 메타데이터라면 조립하지 않고 패스 (선택 사항)
+	// 여기서는 일단 모든 PID를 다 조립해봅니다.
+
+	// PUSI (Payload Unit Start Indicator) 체크
+	if pkt.PUSI {
+		// 1. 기존에 조립하던 게 있었다면 저장 (Flush)
+		if len(a.buffers[pkt.PID]) > 0 {
+			a.saveToDisk(pkt.PID, a.buffers[pkt.PID])
+		}
+
+		// 2. 새로운 시작: 버퍼 초기화 및 현재 패킷 데이터 넣기
+		// (새로운 슬라이스 할당해서 복사)
+		a.buffers[pkt.PID] = append([]byte{}, pkt.Payload...)
+	} else {
+		a.buffers[pkt.PID] = append(a.buffers[pkt.PID], pkt.Payload...)
+	}
+}
+
+func (a *Assembler) saveToDisk(pid uint16, data []byte) {
+	if _, exists := a.files[pid]; !exists {
+		filename := fmt.Sprintf("output_%d.h264", pid) // 일단 h264라고 가정
+		path := filepath.Join(a.outputDir, filename)
+
+		f, err := os.OpenFile(path, os.O_APPEND|os.O_CREATE|os.O_WRONLY, 0644)
+		if err != nil {
+			fmt.Printf("Error opening file for PID %d: %v\n", pid, err)
+			return
+		}
+		a.files[pid] = f
+		fmt.Printf("Created files: %s\n", filename)
+	}
+
+	// * 핵심: PES 헤더를 벗겨내고 순수 데이터(ES)만 추출 *
+	esData := extractES(data)
+
+	// 파일에 쓰기
+	if len(esData) > 0 {
+		_, err := a.files[pid].Write(esData)
+		if err != nil {
+			fmt.Printf("Error writing to PID %d: %v\n", pid, err)
+		}
+	}
+}
+
+func (a *Assembler) Close() {
+	for pid, f := range a.files {
+		fmt.Printf("Closing file for PID %d\n", pid)
+		f.Close()
+	}
+}
+
+// extractES : PES 패킷에서 헤더를 떼고 Payload(ES)만 반환
+func extractES(pesData []byte) []byte {
+	// 최소 PES 헤더 길이(6) + Optional Header 길이 필드 위치까지 확보
+	if len(pesData) < 9 {
+		return nil
+	}
+
+	// 1. Start Code 확인 (0x000001)
+	if pesData[0] != 0x00 || pesData[1] != 0x00 || pesData[2] != 0x01 {
+		// PES가 아닌 데이터(그냥 TS 조각 등)는 그냥 저장하거나 버림
+		return pesData
+	}
+
+	// 2. Optional Header 길이 파악
+	// PES 헤더 구조 : [StartCode 3][StreamID 1][PacketLen 2][Flags 2][HeaderLen 1][...Header Data...]
+	// 8번 인덱스(9번째 바이트)가 "내 뒤에 헤더가 몇 바이트 더 있는지" 알려줌
+	pesHeaderDataLen := int(pesData[8])
+
+	// 3. 실제 데이터 시작 위치 계산
+	// 기본 6바이트 + Flags(2바이트) + Len필드(1바이트) = 9바이트
+	headerSize := 9 + pesHeaderDataLen
+
+	if len(pesData) <= headerSize {
+		return nil
+	}
+
+	// 헤더 뒤에 있는 진짜 데이터만 반환
+	return pesData[headerSize:]
 }
 
 func ParseTsPacket(data []byte) (*TSPacket, error) {
