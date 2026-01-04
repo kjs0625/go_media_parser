@@ -10,7 +10,7 @@ import (
 
 const (
 	TS_PACKET_SIZE = 188
-	MAX_PACKETS    = 100
+	MAX_PACKETS    = 10000
 )
 
 func main() {
@@ -24,6 +24,9 @@ func main() {
 
 	buffer := make([]byte, TS_PACKET_SIZE)
 	packetCount := 0
+
+	// make assembler
+	a := mpegts.NewAssembler("test")
 
 	fmt.Printf(">> Reading file: %s (Showing first %d packets)\n\n", filename, MAX_PACKETS)
 
@@ -49,6 +52,7 @@ func main() {
 			mpegts.Print(tsPacket)
 		}
 
+		a.AddPacket(tsPacket)
 		//hexview.Print(buffer)
 
 		if packetCount >= MAX_PACKETS {
