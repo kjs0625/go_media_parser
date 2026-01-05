@@ -91,6 +91,10 @@ func isVideoOrAudio(id uint8) bool {
 }
 
 func parseTimestamp(data []byte) uint64 {
+	if len(data) < 5 {
+		return 0
+	}
+
 	var ts uint64
 	// 포맷: [0010] [32..30] [1] [29..15] [1] [14..0] [1]
 
